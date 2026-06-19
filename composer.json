@@ -1,0 +1,51 @@
+{
+    "name": "fedale/access-control-voter-bundle",
+    "type": "symfony-bundle",
+    "description": "Symfony bundle for dynamic, DB-driven authorization voters (#[IsGranted] backed by a database)",
+    "keywords": [
+        "symfony",
+        "bundle",
+        "voter",
+        "authorization",
+        "permissions",
+        "rbac",
+        "is-granted"
+    ],
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Fedale\\AccessControlVoterBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Fedale\\AccessControlVoterBundle\\Tests\\": "tests/"
+        }
+    },
+    "require": {
+        "php": "^8.2",
+        "psr/cache": "^3.0",
+        "symfony/config": "^6.4 || ^7.0",
+        "symfony/console": "^6.4 || ^7.0",
+        "symfony/dependency-injection": "^6.4 || ^7.0",
+        "symfony/http-kernel": "^6.4 || ^7.0",
+        "symfony/security-core": "^6.4 || ^7.0",
+        "symfony/security-bundle": "^6.4 || ^7.0",
+        "fedale/access-control-bundle": "^1.0"
+    },
+    "require-dev": {
+        "doctrine/doctrine-bundle": "^2.8",
+        "doctrine/orm": "^2.14 || ^3.0",
+        "phpunit/phpunit": "^11.0",
+        "symfony/cache": "^6.4 || ^7.0"
+    },
+    "suggest": {
+        "doctrine/orm": "Necessario quando 'provider: doctrine' (sorgente regole di default)",
+        "doctrine/doctrine-bundle": "Necessario quando 'provider: doctrine'"
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0-dev"
+        }
+    }
+}
