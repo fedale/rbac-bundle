@@ -356,4 +356,3 @@ php bin/console rbac:check <user> <item>   # static reachability (rules NOT eval
 composer install
 vendor/bin/phpunit
 ```
- 
