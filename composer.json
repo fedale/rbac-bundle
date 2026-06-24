@@ -1,37 +1,42 @@
 {
-    "name": "fedale/access-control-voter-bundle",
+    "name": "fedale/rbac-bundle",
     "type": "symfony-bundle",
-    "description": "Symfony bundle for dynamic, DB-driven authorization voters (#[IsGranted] backed by a database)",
+    "description": "Symfony RBAC bundle inspired by Yii2 (auth_item / auth_item_child / auth_assignment / auth_rule): roles, permissions, hierarchy, per-user assignments and contextual rules, with a can() API and DB-driven role hierarchy",
     "keywords": [
         "symfony",
         "bundle",
-        "voter",
+        "rbac",
         "authorization",
         "permissions",
-        "rbac",
-        "is-granted"
+        "roles",
+        "voter",
+        "is-granted",
+        "yii2"
     ],
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Fedale\\AccessControlVoterBundle\\": "src/"
+            "Fedale\\RbacBundle\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Fedale\\AccessControlVoterBundle\\Tests\\": "tests/"
+            "Fedale\\RbacBundle\\Tests\\": "tests/"
         }
     },
     "require": {
         "php": "^8.2",
         "psr/cache": "^3.0",
+        "psr/container": "^1.1 || ^2.0",
         "symfony/config": "^6.4 || ^7.0",
         "symfony/console": "^6.4 || ^7.0",
         "symfony/dependency-injection": "^6.4 || ^7.0",
+        "symfony/expression-language": "^6.4 || ^7.0",
         "symfony/http-kernel": "^6.4 || ^7.0",
         "symfony/security-core": "^6.4 || ^7.0",
         "symfony/security-bundle": "^6.4 || ^7.0",
-        "fedale/access-control-bundle": "^1.0"
+        "symfony/security-http": "^6.4 || ^7.0",
+        "symfony/service-contracts": "^2.5 || ^3.0"
     },
     "require-dev": {
         "doctrine/doctrine-bundle": "^2.8",
@@ -40,7 +45,7 @@
         "symfony/cache": "^6.4 || ^7.0"
     },
     "suggest": {
-        "doctrine/orm": "Necessario quando 'provider: doctrine' (sorgente regole di default)",
+        "doctrine/orm": "Necessario quando 'provider: doctrine' (sorgente RBAC di default)",
         "doctrine/doctrine-bundle": "Necessario quando 'provider: doctrine'"
     },
     "extra": {

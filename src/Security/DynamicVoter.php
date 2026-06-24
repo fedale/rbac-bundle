@@ -1,34 +1,27 @@
 <?php
 
-namespace Fedale\AccessControlVoterBundle\Security;
+namespace Fedale\RbacBundle\Security;
 
-use Fedale\AccessControlVoterBundle\Config\VoterConfig;
-use Fedale\AccessControlVoterBundle\Contract\PermissionRuleProviderInterface;
-use Fedale\AccessControlVoterBundle\Dto\PermissionRule;
-use Symfony\Bundle\SecurityBundle\Security;
+use Fedale\RbacBundle\Config\VoterConfig;
+use Fedale\RbacBundle\Contract\AccessManagerInterface;
+use Fedale\RbacBundle\Contract\ItemStorageInterface;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 use Symfony\Component\Security\Core\Authorization\Voter\Voter;
 
 /**
- * Voter nativo Symfony che porta le regole DB-driven nel flusso
- * #[IsGranted] / isGranted() / AccessDecisionManager.
+ * Thin bridge between Symfony's native flow (#[IsGranted] / isGranted() /
+ * AccessDecisionManager) and the RBAC AccessManager.
  *
- * Semantica (coerente col firewall del bundle padre):
- *   - super_admin_role -> ACCESS_GRANTED (short-circuit);
- *   - first-match-wins sulle regole dell'attributo, ordinate per sort ASC: la
- *     prima regola "applicabile" (ruoli soddisfatti) decide via il suo allow;
- *   - attributo senza alcuna regola attiva -> supports() = false -> ABSTAIN
- *     (lasciamo decidere gli altri voter).
- *
- * Predisposizione object-level: subjectType e condition vengono letti ma il
- * match su $subject e l'esecuzione della condizione sono NO-OP per ora
- * (vedi PermissionConditionInterface e README).
+ * Scoped only to attributes that are known PERMISSIONS (auth_item type=permission):
+ * this way roles (ROLE_*) do not fall in here and isGranted($role) — used in the
+ * hierarchy — does not trigger recursion. On attributes that are not its own the
+ * voter abstains, leaving room for the other voters (including your custom ones).
  */
 final class DynamicVoter extends Voter
 {
     public function __construct(
-        private readonly PermissionRuleProviderInterface $provider,
-        private readonly Security $security,
+        private readonly AccessManagerInterface $accessManager,
+        private readonly ItemStorageInterface $items,
         private readonly VoterConfig $config,
     ) {
     }
@@ -39,56 +32,13 @@ final class DynamicVoter extends Voter
             return false;
         }
 
-        // Attributo-scoped: supportiamo il voto solo per attributi che hanno
-        // almeno una regola attiva. Cosi' i ruoli standard (ROLE_*) non
-        // rientrano qui e isGranted($role) — usato sotto per la gerarchia —
-        // non innesca ricorsione su questo voter.
-        foreach ($this->provider->findActive() as $rule) {
-            if ($rule->attribute === $attribute) {
-                return true;
-            }
-        }
+        $item = $this->items->getItem($attribute);
 
-        return false;
+        return null !== $item && $item->isPermission();
     }
 
     protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
     {
-        // Il super admin bypassa qualunque regola.
-        if (
-            '' !== $this->config->superAdminRole
-            && $this->security->isGranted($this->config->superAdminRole)
-        ) {
-            return true;
-        }
-
-        foreach ($this->provider->findByAttribute($attribute) as $rule) {
-            // TODO object-level: qui andrebbero valutati $rule->subjectType
-            // contro $subject e $rule->condition via PermissionConditionInterface.
-            // Per ora sono no-op: la regola si applica in base ai soli ruoli.
-            if ($this->matchesRoles($rule, $token)) {
-                return $rule->allow;
-            }
-        }
-
-        // Esistono regole per l'attributo (supports() = true) ma nessuna e'
-        // applicabile all'utente corrente: nega.
-        return false;
-    }
-
-    private function matchesRoles(PermissionRule $rule, TokenInterface $token): bool
-    {
-        if ([] === $rule->roles) {
-            return true;
-        }
-
-        foreach ($rule->roles as $role) {
-            // isGranted riusa la role_hierarchy configurata nell'app.
-            if ($this->security->isGranted($role)) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->accessManager->can($attribute, $subject);
     }
 }

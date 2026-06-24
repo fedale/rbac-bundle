@@ -1,166 +1,99 @@
 <?php
 
-namespace Fedale\AccessControlVoterBundle\Tests\Security;
+namespace Fedale\RbacBundle\Tests\Security;
 
-use Fedale\AccessControlVoterBundle\Config\VoterConfig;
-use Fedale\AccessControlVoterBundle\Dto\PermissionRule;
-use Fedale\AccessControlVoterBundle\Security\DynamicVoter;
-use Fedale\AccessControlVoterBundle\Tests\Fixtures\InMemoryPermissionRuleProvider;
-use Fedale\AccessControlVoterBundle\Tests\Fixtures\PermissionRuleFactory;
+use Fedale\RbacBundle\Config\VoterConfig;
+use Fedale\RbacBundle\Contract\AccessManagerInterface;
+use Fedale\RbacBundle\Security\DynamicVoter;
+use Fedale\RbacBundle\Tests\Fixtures\InMemoryItemStorage;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Authorization\Voter\VoterInterface;
+use Symfony\Component\Security\Core\User\InMemoryUser;
 
 #[CoversClass(DynamicVoter::class)]
 final class DynamicVoterTest extends TestCase
 {
-    use PermissionRuleFactory;
-
-    public function testGrantsWhenAllowRuleMatchesUserRole(): void
+    public function testGrantsWhenAccessManagerAllowsAPermissionAttribute(): void
     {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', allow: true, roles: ['ROLE_EDITOR'])],
-            $this->makeSecurity(grantedRoles: ['ROLE_EDITOR']),
-        );
+        $voter = $this->voter(canResult: true);
 
         self::assertSame(
             VoterInterface::ACCESS_GRANTED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
+            $voter->vote($this->token(), null, ['EDIT_POST']),
         );
     }
 
-    public function testDeniesWhenAllowRuleRequiresAnUngrantedRole(): void
+    public function testDeniesWhenAccessManagerRefuses(): void
     {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', allow: true, roles: ['ROLE_EDITOR'])],
-            $this->makeSecurity(grantedRoles: []),
-        );
+        $voter = $this->voter(canResult: false);
 
         self::assertSame(
             VoterInterface::ACCESS_DENIED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
+            $voter->vote($this->token(), null, ['EDIT_POST']),
         );
     }
 
-    public function testDeniesWhenMatchingRuleIsDeny(): void
+    public function testAbstainsOnRoleAttributes(): void
     {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', allow: false, roles: ['ROLE_EDITOR'])],
-            $this->makeSecurity(grantedRoles: ['ROLE_EDITOR']),
-        );
-
-        self::assertSame(
-            VoterInterface::ACCESS_DENIED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
-        );
-    }
-
-    public function testEmptyRolesMatchUnconditionally(): void
-    {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', allow: true, roles: [])],
-            $this->makeSecurity(grantedRoles: []),
-        );
-
-        self::assertSame(
-            VoterInterface::ACCESS_GRANTED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
-        );
-    }
-
-    public function testAbstainsWhenNoRuleForAttribute(): void
-    {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE')],
-            $this->makeSecurity(),
-        );
+        // ROLE_EDITOR is a role-type item: the voter does not handle it
+        // (avoids recursion on ROLE_*), it lets the other voters decide.
+        $voter = $this->voter(canResult: true);
 
         self::assertSame(
             VoterInterface::ACCESS_ABSTAIN,
-            $voter->vote($this->token(), null, ['DELETE_INVOICE']),
+            $voter->vote($this->token(), null, ['ROLE_EDITOR']),
         );
     }
 
-    public function testAbstainsWhenBundleDisabled(): void
+    public function testAbstainsOnUnknownAttributes(): void
     {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', roles: [])],
-            $this->makeSecurity(),
-            enabled: false,
-        );
+        $voter = $this->voter(canResult: true);
 
         self::assertSame(
             VoterInterface::ACCESS_ABSTAIN,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
+            $voter->vote($this->token(), null, ['UNKNOWN']),
         );
     }
 
-    public function testSuperAdminBypassesDenyRule(): void
+    public function testAbstainsWhenDisabled(): void
     {
-        $voter = $this->voter(
-            [$this->makeRule(attribute: 'EDIT_INVOICE', allow: false, roles: [])],
-            $this->makeSecurity(grantedRoles: ['ROLE_SUPER_ADMIN']),
-        );
+        $voter = $this->voter(canResult: true, enabled: false);
 
         self::assertSame(
-            VoterInterface::ACCESS_GRANTED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
+            VoterInterface::ACCESS_ABSTAIN,
+            $voter->vote($this->token(), null, ['EDIT_POST']),
         );
     }
 
-    public function testFirstMatchWinsBySort(): void
+    private function voter(bool $canResult, bool $enabled = true): DynamicVoter
     {
-        // sort 0: deny per ROLE_EDITOR; sort 10: allow per ROLE_EDITOR.
-        // Vince la prima applicabile (sort 0) -> deny.
-        $voter = $this->voter(
-            [
-                $this->makeRule(attribute: 'EDIT_INVOICE', allow: false, roles: ['ROLE_EDITOR'], sort: 0, id: 1),
-                $this->makeRule(attribute: 'EDIT_INVOICE', allow: true, roles: ['ROLE_EDITOR'], sort: 10, id: 2),
-            ],
-            $this->makeSecurity(grantedRoles: ['ROLE_EDITOR']),
-        );
+        $items = (new InMemoryItemStorage())
+            ->role('ROLE_EDITOR')
+            ->permission('EDIT_POST');
 
-        self::assertSame(
-            VoterInterface::ACCESS_DENIED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
-        );
-    }
+        $accessManager = new class($canResult) implements AccessManagerInterface {
+            public function __construct(private readonly bool $result)
+            {
+            }
 
-    public function testSkipsNonApplicableRuleAndUsesNext(): void
-    {
-        // La prima regola richiede ROLE_MANAGER (non concesso) -> saltata.
-        // La seconda (ROLE_EDITOR, concesso) -> allow.
-        $voter = $this->voter(
-            [
-                $this->makeRule(attribute: 'EDIT_INVOICE', allow: false, roles: ['ROLE_MANAGER'], sort: 0, id: 1),
-                $this->makeRule(attribute: 'EDIT_INVOICE', allow: true, roles: ['ROLE_EDITOR'], sort: 10, id: 2),
-            ],
-            $this->makeSecurity(grantedRoles: ['ROLE_EDITOR']),
-        );
+            public function can(string $item, mixed $subject = null): bool
+            {
+                return $this->result;
+            }
+        };
 
-        self::assertSame(
-            VoterInterface::ACCESS_GRANTED,
-            $voter->vote($this->token(), null, ['EDIT_INVOICE']),
-        );
-    }
-
-    /**
-     * @param PermissionRule[] $rules
-     */
-    private function voter(array $rules, Security $security, bool $enabled = true): DynamicVoter
-    {
         return new DynamicVoter(
-            new InMemoryPermissionRuleProvider($rules),
-            $security,
+            $accessManager,
+            $items,
             new VoterConfig(enabled: $enabled, superAdminRole: 'ROLE_SUPER_ADMIN'),
         );
     }
 
     private function token(): TokenInterface
     {
-        return new UsernamePasswordToken($this->makeUser(), 'main', ['ROLE_USER']);
+        return new UsernamePasswordToken(new InMemoryUser('u', null), 'main', ['ROLE_USER']);
     }
 }

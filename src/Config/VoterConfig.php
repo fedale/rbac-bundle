@@ -1,6 +1,6 @@
 <?php
 
-namespace Fedale\AccessControlVoterBundle\Config;
+namespace Fedale\RbacBundle\Config;
 
 final readonly class VoterConfig
 {

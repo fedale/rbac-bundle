@@ -7,7 +7,7 @@
          failOnWarning="true"
          failOnRisky="true">
     <testsuites>
-        <testsuite name="AccessControlVoter Test Suite">
+        <testsuite name="Rbac Test Suite">
             <directory>tests</directory>
         </testsuite>
     </testsuites>

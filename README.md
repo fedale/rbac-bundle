@@ -1,148 +1,324 @@
-# Fedale Access Control Voter Bundle
+# Fedale RBAC Bundle
 
-Autorizzazione **nativa Symfony** (`#[IsGranted]` / `isGranted()` / `AccessDecisionManager`) guidata da
-regole **dinamiche e persistite su database**.
+A Symfony RBAC bundle inspired by Yii2's auth manager. It mirrors a four-table
+model (`auth_item`, `auth_item_child`, `auth_assignment`, `auth_rule`) and maps
+those concepts onto native Symfony primitives. It adds a `can()` API for
+permissions alongside `isGranted()` for roles, a DB-driven role hierarchy, and
+contextual rules (service- or expression-based).
 
-È il complemento di [`fedale/access-control-bundle`](https://packagist.org/packages/fedale/access-control-bundle):
+> Not to be confused with `fedale/access-control-bundle`, which is the perimeter
+> HTTP guard (path/host/IP firewall). This bundle is RBAC authorization
+> (roles/permissions/hierarchy/rules) and is fully independent.
 
-| | `access-control-bundle` | `access-control-voter-bundle` (questo) |
-|---|---|---|
-| Livello | Firewall su `kernel.request` | Voter nativo Symfony |
-| Protegge | URL (path/host/ip/method) | Attributi/azioni (`#[IsGranted('EDIT_INVOICE')]`) |
-| Semantica | first-match-wins | first-match-wins |
-| Sorgente regole | DB (Doctrine) + cache | DB (Doctrine) + cache |
+## Concept mapping
 
-Questo bundle **dipende** da `access-control-bundle` e ne riusa i pattern (provider, cache PSR-6,
-bridge Doctrine, config `AbstractBundle`), ma **non lo modifica** e vive in un pacchetto separato.
+| Yii2 RBAC | Here |
+|---|---|
+| `auth_item` (role/permission, `type` field) | `auth_item` table + `AuthItemType` enum (`role`/`permission`) |
+| `auth_item_child` (parent→child hierarchy) | `auth_item_child` table (role→role, role→permission, permission→permission) |
+| `auth_assignment` (user→item) | `auth_assignment` table (role **or** permission, including direct-to-user) |
+| `auth_rule` (`execute()`) | `auth_rule` table + `RuleInterface` / `ExpressionRule` |
+| `Yii::$app->user->can($item, $params)` | `AccessManagerInterface::can($item, $subject)` |
+| role→role hierarchy | `RbacRoleHierarchy` decorating `security.role_hierarchy` |
 
-## Installazione
+The key expressiveness: you can **assign a permission directly to a single
+user** (via `auth_assignment`), bypassing the hierarchy — something Symfony's
+roles-only model does not support natively.
+
+## Architecture
+
+- **Assignment** (user→item): `auth_assignment`, the single source of truth (see Token integration).
+- **Role→role hierarchy**: `RbacRoleHierarchy` feeds `isGranted(ROLE_*)`.
+- **Permissions / decision**: `AccessManager::can($item, $subject)` walks up
+  `auth_item_child` gating each node with its `auth_rule`. It is also exposed
+  through `DynamicVoter`, so `#[IsGranted('PERMISSION', subject: $obj)]` and
+  `isGranted('PERMISSION', $obj)` keep working.
+
+`can()` accepts any item (role or permission). Recommended convention:
+`isGranted(ROLE)` for a plain role check; `can(item, $subject)` when you need a
+rule's contextual gating.
+
+## Installation
 
 ```bash
-composer require fedale/access-control-voter-bundle
+composer require fedale/rbac-bundle
 ```
 
-Registra il bundle (se non usi Symfony Flex):
+Register the bundle (usually automatic with Flex):
 
 ```php
 // config/bundles.php
 return [
     // ...
-    Fedale\AccessControlVoterBundle\FedaleAccessControlVoterBundle::class => ['all' => true],
+    Fedale\RbacBundle\FedaleRbacBundle::class => ['all' => true],
 ];
 ```
 
-Col provider Doctrine (default) il mapping ORM dell'entità viene registrato **automaticamente**
-(`prependExtension`): non serve aggiungere voci a `doctrine.orm.mappings`. Genera ed esegui la
-migration per creare la tabella `permission_rule`:
+With the Doctrine provider (default) the entities' ORM mapping is registered
+automatically: you don't need to add `doctrine.orm.mappings` entries.
 
-```bash
-php bin/console make:migration
-php bin/console doctrine:migrations:migrate
-```
-
-## Quick start
-
-1. Annota un controller/azione con un attributo a piacere:
-
-   ```php
-   use Symfony\Component\Security\Http\Attribute\IsGranted;
-
-   #[IsGranted('EDIT_INVOICE')]
-   public function edit(Invoice $invoice): Response { /* ... */ }
-   ```
-
-2. Inserisci una regola nella tabella `permission_rule` (o via la tua UI/CRUD):
-
-   | attribute | roles | allow | sort | active |
-   |---|---|---|---|---|
-   | `EDIT_INVOICE` | `["ROLE_EDITOR"]` | `true` | `0` | `true` |
-
-3. Un utente con `ROLE_EDITOR` ottiene **200**, gli altri **403**. Disattiva la regola
-   (`active = false`) o cambiala a runtime: la decisione cambia senza deploy
-   (ricordati di invalidare il pool di cache, vedi sotto).
-
-### Come decide il voter
-
-Per ogni attributo (`EDIT_INVOICE`):
-
-1. **`super_admin_role`** concesso → `ACCESS_GRANTED` (short-circuit).
-2. Regole attive dell'attributo, ordinate per `sort` ASC: la **prima applicabile** (ruoli soddisfatti,
-   `roles` vuoto = sempre applicabile) decide via il suo `allow` → grant/deny. *(first-match-wins)*
-3. Nessuna regola per quell'attributo → `supports()` è `false` → **ABSTAIN** (decidono gli altri voter).
-4. Regole presenti ma nessuna applicabile all'utente → `ACCESS_DENIED`.
-
-I ruoli sono valutati con `isGranted()`, quindi la `role_hierarchy` dell'app è rispettata.
-
-> Edge-case: evita di usare come `attribute` una stringa che coincide con un ruolo (`ROLE_*`): il voter
-> è attributo-scoped proprio per non intercettare i voti sui ruoli ed evitare ricorsione.
-
-## Configurazione
+## Configuration
 
 ```yaml
-# config/packages/fedale_access_control_voter.yaml
-fedale_access_control_voter:
+# config/packages/fedale_rbac.yaml
+fedale_rbac:
     enabled: true
-    # Ruolo che bypassa tutte le regole (stringa vuota per disabilitare).
-    super_admin_role: ROLE_SUPER_ADMIN
+    super_admin_role: ROLE_SUPER_ADMIN   # '' to disable the short-circuit
+    override_role_hierarchy: true        # decorate security.role_hierarchy (see below)
+    inject_assigned_roles: false         # fallback; primary = User::getRoles() (see below)
     cache:
         enabled: true
         pool: cache.app
-        # ttl: 3600   # secondi; null = nessuna scadenza (invalida il pool a mano)
-    # 'doctrine' = provider built-in, oppure l'id di un servizio custom.
-    provider: doctrine
+        ttl: null                        # seconds, or null (manual invalidation)
+    provider: doctrine                   # 'doctrine' or a custom storage service id
 ```
 
-Le regole sono cachate **in blocco** sotto un'unica chiave
-(`CachedPermissionRuleProvider::CACHE_KEY`): il voter le interroga ad ogni voto, quindi il DB non viene
-toccato per ogni richiesta. Dopo aver modificato le regole, invalida il pool (es.
-`php bin/console cache:pool:clear cache.app`) oppure imposta un `ttl`.
+## Database schema (Doctrine provider)
 
-Diagnostica delle regole effettive:
+The four tables (FK constraints as shown):
 
-```bash
-php bin/console fedale:access-control-voter:list
+```sql
+CREATE TABLE auth_rule (
+    name        VARCHAR(64) NOT NULL PRIMARY KEY,
+    service_id  VARCHAR(255) NULL,           -- RuleInterface service id
+    expression  TEXT NULL,                   -- or an ExpressionLanguage string
+    data        JSON NOT NULL DEFAULT ('[]'),
+    created_at  DATETIME NOT NULL,
+    updated_at  DATETIME NOT NULL
+);
+
+CREATE TABLE auth_item (
+    name        VARCHAR(64) NOT NULL PRIMARY KEY,
+    type        VARCHAR(32) NOT NULL,        -- 'role' | 'permission'
+    description TEXT NULL,
+    rule_name   VARCHAR(64) NULL,
+    data        JSON NOT NULL DEFAULT ('[]'),
+    created_at  DATETIME NOT NULL,
+    updated_at  DATETIME NOT NULL,
+    CONSTRAINT fk_item_rule FOREIGN KEY (rule_name) REFERENCES auth_rule (name)
+        ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX idx_auth_item_type ON auth_item (type);
+
+CREATE TABLE auth_item_child (
+    parent VARCHAR(64) NOT NULL,
+    child  VARCHAR(64) NOT NULL,
+    PRIMARY KEY (parent, child),
+    CONSTRAINT fk_child_parent FOREIGN KEY (parent) REFERENCES auth_item (name)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_child_child  FOREIGN KEY (child)  REFERENCES auth_item (name)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE auth_assignment (
+    item_name  VARCHAR(64)  NOT NULL,
+    user_id    VARCHAR(255) NOT NULL,        -- the Symfony user identifier (e.g. email)
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (item_name, user_id),
+    CONSTRAINT fk_assignment_item FOREIGN KEY (item_name) REFERENCES auth_item (name)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX idx_auth_assignment_user ON auth_assignment (user_id);
 ```
 
-## Provider custom
+Generate the migration with `php bin/console doctrine:migrations:diff` after
+installing the bundle.
 
-Imposta `provider` all'id di un servizio che implementa
-`Fedale\AccessControlVoterBundle\Contract\PermissionRuleProviderInterface` (YAML, API, in-memory, ...).
-La decorazione di cache resta opzionale e indipendente dalla sorgente.
+Notes: a rule references a `service_id` or an `expression` (no serialized PHP
+object); timestamps are `DATETIME`; `user_id` is `VARCHAR(255)`.
 
-## Ispirazione: Yii2 RBAC
+## Token integration
 
-Il design prende spunto dall'auth manager di Yii2 e ne mappa i concetti su quelli nativi di Symfony:
+`auth_assignment` is the single source of truth for user→item. For
+`isGranted(ROLE_*)` to reflect assigned roles, choose one mechanism:
 
-| Yii2 RBAC | Qui |
-|---|---|
-| Permission (auth item) | `attribute` (es. `EDIT_INVOICE`) |
-| `Yii::$app->user->can($permission, $params)` | `isGranted($attribute, $subject)` |
-| `$params` passato a `can()` | `$subject` del voter |
-| Assignment ruolo→utente, role hierarchy | `roles` sulla regola + `role_hierarchy` di Symfony |
-| **Rule** (`execute($user, $item, $params): bool`) | `PermissionConditionInterface::evaluate($subject, $token, $context)` |
+### Primary (recommended): `User::getRoles()` reads `auth_assignment`
 
-L'idea più utile di Yii2 è la **Rule**: una condizione contestuale e riusabile, agganciata a un permesso,
-che decide in base all'oggetto (es. "puoi modificare *questa* fattura solo se ne sei l'autore").
-
-### Predisposizione object-level (non ancora attiva)
-
-L'entità/DTO espongono già due campi pensati per questo:
-
-- `subjectType` — FQCN del soggetto a cui la regola si applica;
-- `condition` — id di un servizio `PermissionConditionInterface` (la "Rule" stile Yii2).
+The `User` entity implements `AssignedRolesAwareInterface`; the
+`AssignedRolesUserProvider` decorator injects the roles on every load/refresh
+(token always fresh, no session lag).
 
 ```php
-interface PermissionConditionInterface
+use Fedale\RbacBundle\Security\AssignedRolesAwareInterface;
+
+class User implements UserInterface, AssignedRolesAwareInterface
 {
-    public function evaluate(mixed $subject, TokenInterface $token, array $context = []): bool;
+    /** @var string[] */
+    private array $assignedRoles = [];
+
+    public function setAssignedRoles(array $roles): void
+    {
+        $this->assignedRoles = $roles;
+    }
+
+    public function getRoles(): array
+    {
+        return array_values(array_unique($this->assignedRoles));
+    }
 }
 ```
 
-Allo stato attuale il `DynamicVoter` **legge** questi campi ma **non** li valuta: la decisione dipende
-dai soli `roles`. La valutazione del `$subject` e l'esecuzione delle condizioni sono predisposte ma
-fuori scope (estensione futura), insieme a un eventuale supporto per ExpressionLanguage.
+```yaml
+# config/services.yaml — decorate your user provider
+Fedale\RbacBundle\Security\AssignedRolesUserProvider:
+    decorates: 'security.user.provider.concrete.app_user_provider'
+    arguments:
+        $inner: '@.inner'
+```
 
-## Test
+### Fallback: `inject_assigned_roles: true`
+
+For apps that cannot modify the `User` class. A listener on
+`AuthenticationTokenCreatedEvent` enriches the token (handles the standard
+login's `PostAuthenticationToken`). With stateful firewalls the injected roles
+stay in the session token until re-login; `can()` always reads fresh anyway.
+
+### Migrating from an existing `user_role_assigned` table
+
+If your app already stores role assignments in its own table, migrate them into
+`auth_assignment` and drop it:
+
+```sql
+-- 1) create the role items if missing
+INSERT INTO auth_item (name, type, data, created_at, updated_at)
+SELECT DISTINCT ura.role, 'role', '[]', NOW(), NOW()
+FROM user_role_assigned ura
+LEFT JOIN auth_item ai ON ai.name = ura.role
+WHERE ai.name IS NULL;
+
+-- 2) copy the assignments
+INSERT INTO auth_assignment (item_name, user_id, created_at)
+SELECT ura.role, ura.user_id, NOW() FROM user_role_assigned ura;
+
+-- 3) DROP TABLE user_role_assigned;  (after pointing User::getRoles at the new source)
+```
+
+## DB-driven role hierarchy
+
+With `override_role_hierarchy: true` the bundle decorates
+`security.role_hierarchy` with `RbacRoleHierarchy`, which expands the role→role
+edges from `auth_item_child` (transitive closure). It **replaces** the
+`security.yaml` `role_hierarchy`: any static edges defined there must be
+mirrored in `auth_item_child`. Permissions do not enter the role hierarchy
+(they are resolved by `can()`).
+
+## Rules (`auth_rule`)
+
+A rule attached to an item via `rule_name` runs during `can()` (node gate). Two
+forms, both stored in the DB:
+
+### Service rule (`service_id`)
+
+```php
+use Fedale\RbacBundle\Contract\RuleInterface;
+use Fedale\RbacBundle\Dto\AuthItem;
+use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
+
+// Auto-tagged 'fedale_rbac.rule' via autoconfigure.
+final class AuthorRule implements RuleInterface
+{
+    public function execute(TokenInterface $token, AuthItem $item, mixed $params = null): bool
+    {
+        return $params instanceof Post && $params->getAuthor() === $token->getUser();
+    }
+}
+```
+
+`auth_rule.service_id = 'App\Security\AuthorRule'`. A service rule can also
+delegate to one of your own voters: `$this->security->isGranted('MY_ATTR', $params)`.
+
+### Expression rule (`expression`)
+
+An ExpressionLanguage string in `auth_rule.expression`, evaluated by
+`ExpressionRule`. Variables: `user`, `token`, `subject` (the `$subject` of
+`can()`, which may be a **map**), `item`, `roles`, `auth_checker` (for
+`is_granted(...)`). Examples:
+
+```
+subject.getAuthor() == user
+user === subject["author"] and subject["post"].isPublished()
+```
+
+> With `#[IsGranted]`, the `attribute` Expression is the condition (→
+> `auth_rule.expression`); the `subject:` part that uses `args[...]` stays in the
+> controller attribute and produces the `$subject` that reaches the rule.
+
+## Usage
+
+```php
+// Controller
+use Fedale\RbacBundle\Security\CanTrait;
+
+class InvoiceController extends AbstractController
+{
+    use CanTrait;
+
+    public function edit(Invoice $invoice): Response
+    {
+        if (!$this->can('EDIT_INVOICE', $invoice)) {
+            throw $this->createAccessDeniedException();
+        }
+        // ...
+    }
+}
+```
+
+```php
+// Or via the native flow (DynamicVoter answers on permission attributes)
+#[IsGranted('EDIT_INVOICE', subject: 'invoice')]
+public function edit(Invoice $invoice): Response { /* ... */ }
+```
+
+Your own voters coexist with `DynamicVoter` (which abstains on non-permission
+attributes); use disjoint attributes to avoid double votes.
+
+## Management (write API)
+
+With the Doctrine provider the bundle exposes a write API to manage the graph,
+`RbacManagerInterface`. Every mutation flushes and invalidates the affected cache.
+
+```php
+public function addItem(string $name, AuthItemType $type, ?string $description = null, ?string $ruleName = null): void;
+public function removeItem(string $name): void;
+public function addChild(string $parent, string $child): void;
+public function removeChild(string $parent, string $child): void;
+public function assign(string $userId, string $item): void;
+public function revoke(string $userId, string $item): void;
+public function addRule(string $name, ?string $serviceId = null, ?string $expression = null): void;
+public function removeRule(string $name): void;
+```
+
+CLI equivalents (Doctrine provider):
+
+```bash
+php bin/console rbac:item:add EDIT_INVOICE --type=permission --description="Edit invoices"
+php bin/console rbac:item:add ROLE_EDITOR --type=role
+php bin/console rbac:child:add ROLE_EDITOR EDIT_INVOICE
+php bin/console rbac:assign gianna EDIT_INVOICE     # direct permission to a user
+php bin/console rbac:revoke gianna EDIT_INVOICE
+php bin/console rbac:item:remove EDIT_INVOICE
+php bin/console rbac:child:remove ROLE_EDITOR EDIT_INVOICE
+```
+
+`assign`/`revoke` use the value returned by `getUserIdentifier()` as `user_id`.
+
+## Custom provider (no Doctrine)
+
+Set `provider:` to anything other than `doctrine` and register services for the
+three interfaces `ItemStorageInterface`, `AssignmentStorageInterface`,
+`RuleStorageInterface`. The rest of the bundle (AccessManager, role hierarchy,
+voter, rule resolver) is source-agnostic. The write API and management commands
+are Doctrine-only; a custom provider can implement `RbacManagerInterface` itself.
+
+## Read-only commands
+
+```bash
+php bin/console rbac:list-items
+php bin/console rbac:list-assignments <user>
+php bin/console rbac:check <user> <item>   # static reachability (rules NOT evaluated)
+```
+
+## Tests
 
 ```bash
 composer install
