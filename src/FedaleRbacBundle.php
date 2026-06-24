@@ -10,6 +10,7 @@ use Fedale\RbacBundle\Cache\CachedItemStorage;
 use Fedale\RbacBundle\Cache\CachedRuleStorage;
 use Fedale\RbacBundle\Cache\MemoizedAssignmentStorage;
 use Fedale\RbacBundle\Config\VoterConfig;
+use Fedale\RbacBundle\Contract\AccessManagerInterface;
 use Fedale\RbacBundle\Contract\AssignmentStorageInterface;
 use Fedale\RbacBundle\Contract\ItemStorageInterface;
 use Fedale\RbacBundle\Contract\RbacManagerInterface;
@@ -18,7 +19,9 @@ use Fedale\RbacBundle\Contract\RuleStorageInterface;
 use Fedale\RbacBundle\Security\AssignedRolesInjector;
 use Fedale\RbacBundle\Security\AssignmentRolesProvider;
 use Fedale\RbacBundle\Security\RbacRoleHierarchy;
+use Fedale\RbacBundle\Twig\RbacExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Twig\Extension\AbstractExtension;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -187,6 +190,13 @@ final class FedaleRbacBundle extends AbstractBundle
                 ->tag('kernel.event_listener', [
                     'event' => AuthenticationTokenCreatedEvent::class,
                 ]);
+        }
+
+        // Twig `can()` function, only when Twig is installed.
+        if (class_exists(AbstractExtension::class)) {
+            $services->set(RbacExtension::class)
+                ->args([service(AccessManagerInterface::class)])
+                ->tag('twig.extension');
         }
     }
 }

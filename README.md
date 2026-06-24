@@ -38,6 +38,21 @@ roles-only model does not support natively.
 `isGranted(ROLE)` for a plain role check; `can(item, $subject)` when you need a
 rule's contextual gating.
 
+## RBAC model & NIST positioning
+
+In NIST RBAC (ANSI INCITS 359) terms the bundle covers:
+
+- **Core RBAC (L1)** — users, roles, permissions; permissions acquired through roles,
+  plus **direct permission-to-user assignment** (`auth_assignment` accepts a permission, not
+  only a role).
+- **Hierarchical RBAC (L2), general** — `auth_item_child` is an arbitrary DAG with multiple
+  inheritance (role→role, role→permission, permission→permission), not limited to a tree.
+- **Beyond static RBAC** — `auth_rule` adds contextual, object-level conditions (service- or
+  expression-based on the `$subject`), an ABAC-style capability that plain RBAC lacks.
+
+Not implemented: **Separation of Duty (Constrained RBAC, L3)** — mutually-exclusive roles
+(SSD/DSD) and role cardinality are out of scope.
+
 ## Installation
 
 ```bash
@@ -267,6 +282,15 @@ class InvoiceController extends AbstractController
 // Or via the native flow (DynamicVoter answers on permission attributes)
 #[IsGranted('EDIT_INVOICE', subject: 'invoice')]
 public function edit(Invoice $invoice): Response { /* ... */ }
+```
+
+In Twig (when `twig/twig` is installed) the `can()` function mirrors the PHP API;
+native `is_granted('ROLE_X')` still covers plain role checks:
+
+```twig
+{% if can('EDIT_INVOICE', invoice) %}
+    <a href="{{ path('invoice_edit', {id: invoice.id}) }}">Edit</a>
+{% endif %}
 ```
 
 Your own voters coexist with `DynamicVoter` (which abstains on non-permission

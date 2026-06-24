@@ -42,11 +42,13 @@
         "doctrine/doctrine-bundle": "^2.8",
         "doctrine/orm": "^2.14 || ^3.0",
         "phpunit/phpunit": "^11.0",
-        "symfony/cache": "^6.4 || ^7.0"
+        "symfony/cache": "^6.4 || ^7.0",
+        "twig/twig": "^3.0"
     },
     "suggest": {
-        "doctrine/orm": "Necessario quando 'provider: doctrine' (sorgente RBAC di default)",
-        "doctrine/doctrine-bundle": "Necessario quando 'provider: doctrine'"
+        "doctrine/orm": "Required when 'provider: doctrine' (default RBAC source)",
+        "doctrine/doctrine-bundle": "Required when 'provider: doctrine'",
+        "twig/twig": "Enables the can() Twig function"
     },
     "extra": {
         "branch-alias": {
