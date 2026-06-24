@@ -7,6 +7,7 @@ use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineAssignmentStorage;
 use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineItemStorage;
 use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineRuleStorage;
 use Fedale\RbacBundle\Cache\CachedItemStorage;
+use Fedale\RbacBundle\Command\ClearCacheCommand;
 use Fedale\RbacBundle\Cache\CachedRuleStorage;
 use Fedale\RbacBundle\Cache\MemoizedAssignmentStorage;
 use Fedale\RbacBundle\Config\VoterConfig;
@@ -157,6 +158,11 @@ final class FedaleRbacBundle extends AbstractBundle
                 $services->set(CachedRuleStorage::class)
                     ->args([service(DoctrineRuleStorage::class), service($pool), $ttl]);
                 $services->alias(RuleStorageInterface::class, CachedRuleStorage::class);
+
+                // Targeted cache clear command (only meaningful when cache is on).
+                $services->set(ClearCacheCommand::class)
+                    ->args([service($pool), service(ItemStorageInterface::class)])
+                    ->tag('console.command');
             } else {
                 $services->alias(ItemStorageInterface::class, DoctrineItemStorage::class);
                 $services->alias(RuleStorageInterface::class, DoctrineRuleStorage::class);

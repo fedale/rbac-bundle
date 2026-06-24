@@ -326,6 +326,14 @@ php bin/console rbac:child:remove ROLE_EDITOR EDIT_INVOICE
 
 `assign`/`revoke` use the value returned by `getUserIdentifier()` as `user_id`.
 
+The write API invalidates the cache automatically. When you seed the tables
+out-of-band (SQL/fixtures), clear the bundle's cache keys explicitly (only the
+RBAC keys, not the whole pool; available when the cache is enabled):
+
+```bash
+php bin/console rbac:cache:clear
+```
+
 ## Custom provider (no Doctrine)
 
 Set `provider:` to anything other than `doctrine` and register services for the
