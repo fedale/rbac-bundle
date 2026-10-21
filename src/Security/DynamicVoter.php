@@ -6,6 +6,7 @@ use Fedale\RbacBundle\Config\VoterConfig;
 use Fedale\RbacBundle\Contract\AccessManagerInterface;
 use Fedale\RbacBundle\Contract\ItemStorageInterface;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
+use Symfony\Component\Security\Core\Authorization\Voter\Vote;
 use Symfony\Component\Security\Core\Authorization\Voter\Voter;
 
 /**
@@ -37,7 +38,8 @@ final class DynamicVoter extends Voter
         return null !== $item && $item->isPermission();
     }
 
-    protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
+    // $vote: Symfony 8 signature (7.3+); optional, so 6.4 and 7.x still accept the override.
+    protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token, ?Vote $vote = null): bool
     {
         return $this->accessManager->can($attribute, $subject);
     }

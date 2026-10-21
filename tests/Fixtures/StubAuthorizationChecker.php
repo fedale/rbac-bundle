@@ -2,6 +2,7 @@
 
 namespace Fedale\RbacBundle\Tests\Fixtures;
 
+use Symfony\Component\Security\Core\Authorization\AccessDecision;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 
 /**
@@ -20,7 +21,7 @@ final class StubAuthorizationChecker implements AuthorizationCheckerInterface
     ) {
     }
 
-    public function isGranted(mixed $attribute, mixed $subject = null): bool
+    public function isGranted(mixed $attribute, mixed $subject = null, ?AccessDecision $accessDecision = null): bool
     {
         return \in_array($attribute, $this->granted, true);
     }
