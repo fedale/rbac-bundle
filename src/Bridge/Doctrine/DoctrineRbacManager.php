@@ -61,6 +61,45 @@ final class DoctrineRbacManager implements RbacManagerInterface
         $this->invalidateGraph();
     }
 
+    /**
+     * The name is the primary key the edges and the assignments point at: the item is copied
+     * under the new name, its edges and assignments are recreated on the copy, then the old
+     * item is removed, in one flush.
+     */
+    public function renameItem(string $name, string $newName): void
+    {
+        $item = $this->requireItem($name);
+        if ($name === $newName) {
+            return;
+        }
+        if (null !== $this->em->find(AuthItem::class, $newName)) {
+            throw new \RuntimeException(sprintf('auth_item "%s" already exists.', $newName));
+        }
+
+        $renamed = (new AuthItem())
+            ->setName($newName)
+            ->setType($item->getType())
+            ->setDescription($item->getDescription())
+            ->setRule($item->getRule())
+            ->setData($item->getData());
+        $this->em->persist($renamed);
+
+        $edges = $this->em->getRepository(AuthItemChild::class);
+        foreach ([...$edges->findBy(['parent' => $item]), ...$edges->findBy(['child' => $item])] as $edge) {
+            $parent = $edge->getParent() === $item ? $renamed : $edge->getParent();
+            $child = $edge->getChild() === $item ? $renamed : $edge->getChild();
+            $this->em->remove($edge);
+            $this->em->persist(new AuthItemChild($parent, $child));
+        }
+        foreach ($this->em->getRepository(AuthAssignment::class)->findBy(['item' => $item]) as $assignment) {
+            $this->em->remove($assignment);
+            $this->em->persist(new AuthAssignment($renamed, $assignment->getUserId()));
+        }
+        $this->em->remove($item);
+        $this->em->flush();
+        $this->invalidateGraph();
+    }
+
     public function addChild(string $parent, string $child): void
     {
         $parentItem = $this->requireItem($parent);

@@ -304,6 +304,7 @@ With the Doctrine provider the bundle exposes a write API to manage the graph,
 ```php
 public function addItem(string $name, AuthItemType $type, ?string $description = null, ?string $ruleName = null): void;
 public function removeItem(string $name): void;
+public function renameItem(string $name, string $newName): void; // keeps its edges and assignments
 public function addChild(string $parent, string $child): void;
 public function removeChild(string $parent, string $child): void;
 public function assign(string $userId, string $item): void;

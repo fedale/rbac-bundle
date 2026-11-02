@@ -15,6 +15,12 @@ interface RbacManagerInterface
 
     public function removeItem(string $name): void;
 
+    /**
+     * Gives an item a new name and keeps everything attached to it: its parents and
+     * children in the graph, and the users it is assigned to.
+     */
+    public function renameItem(string $name, string $newName): void;
+
     public function addChild(string $parent, string $child): void;
 
     public function removeChild(string $parent, string $child): void;
