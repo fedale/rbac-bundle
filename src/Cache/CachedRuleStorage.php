@@ -10,6 +10,9 @@ use Psr\Cache\CacheItemPoolInterface;
  * PSR-6 decorator for rule definitions (auth_rule), cached per name. Also
  * memoizes absence (a false sentinel) to avoid repeated queries on items with a
  * non-existent rule_name. Source-agnostic.
+ *
+ * While the guard refuses caching (a database transaction is open), rules are read from the
+ * source and neither stored nor memoized, as CachedItemStorage does.
  */
 final class CachedRuleStorage implements RuleStorageInterface
 {
@@ -23,11 +26,16 @@ final class CachedRuleStorage implements RuleStorageInterface
         private readonly CacheItemPoolInterface $pool,
         private readonly ?int $ttl = null,
         private readonly string $prefix = self::CACHE_PREFIX,
+        private readonly ?CacheWriteGuardInterface $guard = null,
     ) {
     }
 
     public function getRule(string $name): ?AuthRule
     {
+        if (null !== $this->guard && !$this->guard->allowsCaching()) {
+            return $this->inner->getRule($name);
+        }
+
         if (\array_key_exists($name, $this->local)) {
             return $this->local[$name];
         }
