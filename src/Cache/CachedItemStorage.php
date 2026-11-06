@@ -15,6 +15,10 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * Assignments (per-user, volatile) do NOT go through here: see
  * MemoizedAssignmentStorage.
+ *
+ * While the guard refuses caching (a database transaction is open), the graph is read from
+ * the source on every call and neither stored nor memoized: it may hold items the transaction
+ * has just written, and may yet roll back.
  */
 final class CachedItemStorage implements ItemStorageInterface
 {
@@ -30,6 +34,7 @@ final class CachedItemStorage implements ItemStorageInterface
         private readonly CacheItemPoolInterface $pool,
         private readonly ?int $ttl = null,
         private readonly string $key = self::CACHE_KEY,
+        private readonly ?CacheWriteGuardInterface $guard = null,
     ) {
     }
 
@@ -58,6 +63,11 @@ final class CachedItemStorage implements ItemStorageInterface
      */
     private function graph(): array
     {
+        // Before the memo too: a graph memoized before the transaction misses its writes.
+        if (null !== $this->guard && !$this->guard->allowsCaching()) {
+            return $this->build();
+        }
+
         if (null !== $this->graph) {
             return $this->graph;
         }

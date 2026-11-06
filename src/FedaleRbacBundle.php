@@ -6,6 +6,7 @@ use Fedale\RbacBundle\Bridge\Doctrine\DoctrineRbacManager;
 use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineAssignmentStorage;
 use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineItemStorage;
 use Fedale\RbacBundle\Bridge\Doctrine\Storage\DoctrineRuleStorage;
+use Fedale\RbacBundle\Bridge\Doctrine\TransactionCacheWriteGuard;
 use Fedale\RbacBundle\Cache\CachedItemStorage;
 use Fedale\RbacBundle\Command\ClearCacheCommand;
 use Fedale\RbacBundle\Cache\CachedRuleStorage;
@@ -151,12 +152,16 @@ final class FedaleRbacBundle extends AbstractBundle
             $container->import(dirname(__DIR__) . '/config/doctrine.php');
 
             if ($cacheEnabled) {
+                // Nothing read inside an open transaction reaches the cache: it may roll back.
+                $services->set(TransactionCacheWriteGuard::class)
+                    ->args([service('doctrine.orm.entity_manager')]);
+
                 $services->set(CachedItemStorage::class)
-                    ->args([service(DoctrineItemStorage::class), service($pool), $ttl]);
+                    ->args([service(DoctrineItemStorage::class), service($pool), $ttl, CachedItemStorage::CACHE_KEY, service(TransactionCacheWriteGuard::class)]);
                 $services->alias(ItemStorageInterface::class, CachedItemStorage::class);
 
                 $services->set(CachedRuleStorage::class)
-                    ->args([service(DoctrineRuleStorage::class), service($pool), $ttl]);
+                    ->args([service(DoctrineRuleStorage::class), service($pool), $ttl, CachedRuleStorage::CACHE_PREFIX, service(TransactionCacheWriteGuard::class)]);
                 $services->alias(RuleStorageInterface::class, CachedRuleStorage::class);
 
                 // Targeted cache clear command (only meaningful when cache is on).

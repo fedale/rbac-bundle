@@ -335,6 +335,18 @@ RBAC keys, not the whole pool; available when the cache is enabled):
 php bin/console rbac:cache:clear
 ```
 
+Writes inside a database transaction are safe to roll back. While the connection
+has a transaction open, the item graph and the rules are read from the database
+on every call and never cached (`TransactionCacheWriteGuard`): a read there sees
+the transaction's own writes, and a rollback would otherwise leave items in the
+cache that were never committed. So an app can create items inside its own
+transaction (the permissions of a new record type, created with it) and roll the
+whole thing back. The graph is rebuilt on each read meanwhile, so keep such
+transactions short.
+
+A custom cache setup can pass its own `CacheWriteGuardInterface` as the last
+argument of `CachedItemStorage` and `CachedRuleStorage`.
+
 ## Custom provider (no Doctrine)
 
 Set `provider:` to anything other than `doctrine` and register services for the
